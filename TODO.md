@@ -1,5 +1,24 @@
 # TODO
 
+## Resume here (next session)
+State: working GUI + capture pipeline on mock cameras, pushed to `main`. 4 tests pass, lint clean.
+Not yet tried with real ELP-USBFHD01M-BL170IR cameras.
+
+Open questions for the user:
+- Which per-camera metadata fields are wanted (placeholders: `animal_id`, `cage`)?
+- Save GUI-edited metadata back to `config/local.yaml` so it survives restarts?
+- Add a "resume last session" button, or is typing the session name fine?
+
+Suggested next steps, in order:
+1. Camera enumeration helper: list connected devices and generate `config/local.yaml`
+   (Windows indices; Linux `/dev/v4l/by-path/...`).
+2. Plug in the real cameras; verify 1080p MJPG capture and the 4-camera preview.
+3. Tune the quality thresholds in `cameras/quality.py` on real images (visible + IR modes).
+4. Per-camera exposure/gain/brightness controls in the GUI (V4L2 vs DirectShow differ).
+5. Persist metadata/settings from the GUI; resume-session button.
+6. Reconnect-on-drop and per-camera health; check USB bandwidth before going to 8 cameras.
+7. Add GitHub Actions CI (ruff + pytest). Then test on the Linux laptop (`pixi install`, `video` group).
+
 ## Setup
 - [x] Project skeleton, pixi environment (Windows + Linux)
 - [x] Publish `jaimemcc/hamster-hoarding` (public)
