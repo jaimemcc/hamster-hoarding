@@ -1,0 +1,15 @@
+# Default settings. Copy to config/local.yaml (git-ignored) for machine-specific values.
+#
+# Camera identity: "name" is what appears in folder/file names, so keep it fixed even if
+# the device index changes. On Linux prefer a stable path, e.g.
+#   device: /dev/v4l/by-path/pci-0000:00:14.0-usb-0:2:1.0-video-index0
+# On Windows, device is the DirectShow index (0, 1, 2, ...).
+# Use device: mock for a synthetic camera (development without hardware).
+output_dir: data
+interval_minutes: 10
+jpeg_quality: 95
+cameras:
+  - {name: cam1, device: mock}
+  - {name: cam2, device: mock}
+  - {name: cam3, device: mock}
+  - {name: cam4, device: mock}

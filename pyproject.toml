@@ -1,0 +1,52 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "hamster-hoarding"
+version = "0.1.0"
+description = "Webcam control, recording and experiment runner with a GUI"
+readme = "README.md"
+requires-python = ">=3.10"
+# Runtime dependencies are managed by pixi (conda-forge) in [tool.pixi.dependencies]
+dependencies = []
+
+[project.scripts]
+hamster-hoarding = "hamster_hoarding.__main__:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/hamster_hoarding"]
+
+[tool.pixi.workspace]
+channels = ["conda-forge"]
+platforms = ["win-64", "linux-64"]
+
+[tool.pixi.dependencies]
+python = "3.11.*"
+numpy = "*"
+py-opencv = "*"
+pyside6 = "*"
+pyyaml = "*"
+
+[tool.pixi.pypi-dependencies]
+hamster-hoarding = { path = ".", editable = true }
+
+[tool.pixi.feature.dev.dependencies]
+pytest = "*"
+ruff = "*"
+
+[tool.pixi.environments]
+default = { features = ["dev"], solve-group = "default" }
+
+[tool.pixi.tasks]
+app = "python -m hamster_hoarding"
+test = "pytest"
+lint = "ruff check ."
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+extend-exclude = [".pixi"]
+src = ["src", "tests"]

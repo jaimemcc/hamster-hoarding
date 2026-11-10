@@ -1,0 +1,21 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.ruff_cache/
+
+# Recorded data
+data/
+recordings/
+*.mp4
+*.avi
+
+# Local config
+config/local.yaml
+
+# pixi
+.pixi/
