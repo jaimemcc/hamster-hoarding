@@ -16,7 +16,8 @@
 
 ## GUI
 - [x] Live preview grid with per-camera quality indicator
-- [x] Capture now, start/stop schedule, interval, session name
+- [x] Capture now, start/pause/resume/stop schedule (runs until stopped), interval, session name
+- [x] Per-camera metadata fields editable in GUI
 - [ ] Settings panel editing cameras / output dir; save/load profiles
 - [ ] Countdown to next capture, disk-space warning, image count
 - [ ] Open last captured image / session folder
@@ -24,12 +25,14 @@
 
 ## Data
 - [x] Session folder per camera, timestamped filenames, captures.csv, session.json
+- [x] Configurable per-camera metadata (CSV columns, optional filename inclusion)
+- [ ] Persist GUI-edited metadata back to config/local.yaml (currently only recorded in the CSV)
 - [ ] Decide metadata needed for later CV (animal/cage ID per camera, notes)
 - [ ] Export / analysis helpers
 
 ## Experiment
-- [ ] Confirm scheduling needs (fixed duration, start/stop times, light/dark cycle)
-- [ ] Resume a session after a crash/restart
+- [x] Run continuously until stopped; pause/resume (e.g. feeding)
+- [ ] Resume a session after a crash/restart (storage already appends to an existing session)
 
 ## Testing
 - [x] Mock camera + tests for capture layout

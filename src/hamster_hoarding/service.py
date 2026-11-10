@@ -27,6 +27,8 @@ class CaptureService:
         self.session: Session | None = None
         self.on_results: Callable[[list[CaptureResult]], None] | None = None
         self._stop = threading.Event()
+        self._paused = threading.Event()
+        self._wake = threading.Event()
         self._thread: threading.Thread | None = None
         self._capture_lock = threading.Lock()
 
@@ -64,7 +66,7 @@ class CaptureService:
                     if frame is None:
                         raise RuntimeError(cam.error or "no frame received")
                     quality = assess(frame.image)
-                    path = self.session.save_image(name, frame, quality)
+                    path = self.session.save_image(cam.settings, frame, quality)
                     results.append(CaptureResult(name, path, quality))
                 except Exception as exc:  # noqa: BLE001 - one bad camera must not stop the rest
                     results.append(CaptureResult(name, None, None, str(exc)))
@@ -81,21 +83,45 @@ class CaptureService:
     def running(self) -> bool:
         return self._thread is not None and self._thread.is_alive()
 
+    @property
+    def paused(self) -> bool:
+        return self._paused.is_set()
+
     def start_schedule(self) -> None:
         if self.running:
             return
         self._stop.clear()
+        self._paused.clear()
+        self._wake.clear()
         self._thread = threading.Thread(target=self._loop, name="schedule", daemon=True)
         self._thread.start()
 
+    def pause(self) -> None:
+        """Suspend scheduled captures (e.g. during feeding). Manual capture still works."""
+        self._paused.set()
+
+    def resume(self) -> None:
+        """Resume scheduled captures; takes an image right away, then continues on interval."""
+        self._paused.clear()
+        self._wake.set()
+
     def _loop(self) -> None:
         while not self._stop.is_set():
-            self.capture_all()
-            if self._stop.wait(self.settings.interval_minutes * 60):
-                break
+            if not self._paused.is_set():
+                self.capture_all()
+            deadline = time.monotonic() + self.settings.interval_minutes * 60
+            while not self._stop.is_set():
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                if self._wake.wait(min(remaining, 1.0)):
+                    self._wake.clear()
+                    deadline = 0  # resumed: capture immediately
+                    break
 
     def stop_schedule(self) -> None:
         self._stop.set()
+        self._wake.set()
         if self._thread:
             self._thread.join(timeout=10)
             self._thread = None

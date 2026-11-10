@@ -1,5 +1,6 @@
 import csv
 import json
+import re
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
@@ -8,11 +9,10 @@ import cv2
 
 from hamster_hoarding.cameras.camera import Frame
 from hamster_hoarding.cameras.quality import Quality
-from hamster_hoarding.config import Settings
+from hamster_hoarding.config import CameraSettings, Settings
 
-LOG_COLUMNS = [
-    "timestamp",
-    "camera",
+BASE_COLUMNS = ["timestamp", "camera"]
+QUALITY_COLUMNS = [
     "file",
     "brightness",
     "dark_fraction",
@@ -22,13 +22,17 @@ LOG_COLUMNS = [
 ]
 
 
+def _safe(value: str) -> str:
+    return re.sub(r"[^A-Za-z0-9.-]+", "-", str(value)).strip("-")
+
+
 class Session:
     """On-disk layout:
 
     <output_dir>/<session_id>/
-        session.json                     settings snapshot + start time
-        captures.csv                     one row per image (camera, time, quality)
-        <camera_name>/<camera_name>_<YYYYmmddTHHMMSS>.jpg
+        session.json     settings snapshot + start time
+        captures.csv     one row per image: time, camera, metadata fields, file, quality
+        <camera>/<camera>[_<filename metadata>]_<YYYYmmddTHHMMSS>.jpg
     """
 
     def __init__(self, settings: Settings, session_id: str | None = None):
@@ -36,6 +40,7 @@ class Session:
         self.session_id = session_id or datetime.now().strftime("%Y%m%d_%H%M%S")
         self.root = Path(settings.output_dir) / self.session_id
         self.log_path = self.root / "captures.csv"
+        self.columns = BASE_COLUMNS + settings.metadata_fields + QUALITY_COLUMNS
 
     def start(self) -> None:
         self.root.mkdir(parents=True, exist_ok=True)
@@ -44,32 +49,46 @@ class Session:
             "started": datetime.now().astimezone().isoformat(timespec="seconds"),
             "settings": asdict(self.settings),
         }
-        (self.root / "session.json").write_text(json.dumps(meta, indent=2))
-        if not self.log_path.exists():
+        meta_path = self.root / "session.json"
+        if not meta_path.exists():
+            meta_path.write_text(json.dumps(meta, indent=2))
+        if self.log_path.exists():
+            # Resuming into an existing session: keep its column layout.
+            with self.log_path.open(newline="") as f:
+                self.columns = next(csv.reader(f), self.columns)
+        else:
             with self.log_path.open("w", newline="") as f:
-                csv.writer(f).writerow(LOG_COLUMNS)
+                csv.writer(f).writerow(self.columns)
 
-    def save_image(self, camera: str, frame: Frame, quality: Quality) -> Path:
+    def save_image(self, camera: CameraSettings, frame: Frame, quality: Quality) -> Path:
         when = datetime.fromtimestamp(frame.timestamp).astimezone()
-        folder = self.root / camera
+        name = camera.name
+        parts = [name]
+        parts += [
+            _safe(camera.metadata[k])
+            for k in self.settings.filename_fields
+            if camera.metadata.get(k)
+        ]
+        parts.append(f"{when:%Y%m%dT%H%M%S}")
+        folder = self.root / name
         folder.mkdir(exist_ok=True)
-        path = folder / f"{camera}_{when:%Y%m%dT%H%M%S}.jpg"
+        path = folder / ("_".join(parts) + ".jpg")
         ok = cv2.imwrite(
             str(path), frame.image, [cv2.IMWRITE_JPEG_QUALITY, self.settings.jpeg_quality]
         )
         if not ok:
             raise OSError(f"Failed to write {path}")
+        row = {
+            "timestamp": when.isoformat(timespec="seconds"),
+            "camera": name,
+            "file": path.relative_to(self.root).as_posix(),
+            "brightness": f"{quality.brightness:.1f}",
+            "dark_fraction": f"{quality.dark_fraction:.4f}",
+            "bright_fraction": f"{quality.bright_fraction:.4f}",
+            "sharpness": f"{quality.sharpness:.1f}",
+            "warnings": ";".join(quality.warnings),
+        }
+        row.update({k: camera.metadata.get(k, "") for k in self.settings.metadata_fields})
         with self.log_path.open("a", newline="") as f:
-            csv.writer(f).writerow(
-                [
-                    when.isoformat(timespec="seconds"),
-                    camera,
-                    path.relative_to(self.root).as_posix(),
-                    f"{quality.brightness:.1f}",
-                    f"{quality.dark_fraction:.4f}",
-                    f"{quality.bright_fraction:.4f}",
-                    f"{quality.sharpness:.1f}",
-                    ";".join(quality.warnings),
-                ]
-            )
+            csv.DictWriter(f, self.columns, extrasaction="ignore").writerow(row)
         return path

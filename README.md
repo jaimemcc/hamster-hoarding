@@ -39,10 +39,15 @@ The default config uses mock cameras so the GUI runs without hardware. Copy
 ```
 data/<session>/
   session.json                          settings snapshot and start time
-  captures.csv                          timestamp, camera, file, brightness, sharpness, warnings
-  cam1/cam1_20261110T160439.jpg
+  captures.csv                          timestamp, camera, <metadata fields>, file, brightness, ...
+  cam1/cam1_H01_20261110T160439.jpg     (metadata in filename is optional: filename_fields)
   cam2/...
 ```
+
+Metadata (e.g. `animal_id`, `cage`) is configured per camera in the YAML via `metadata_fields`,
+`filename_fields` and each camera's `metadata:`; it can also be edited in the GUI tiles.
+Use **Pause** during feeding: scheduled captures stop, and **Resume** takes an image
+immediately and continues on the interval.
 
 The camera `name` in the config is the identity written into folder/file names and the CSV,
 so images can always be traced to their camera regardless of USB device numbering.

@@ -5,6 +5,7 @@ from PySide6.QtCore import QObject, Qt, QTimer, Signal
 from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtWidgets import (
     QDoubleSpinBox,
+    QFormLayout,
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
@@ -18,15 +19,16 @@ from PySide6.QtWidgets import (
 )
 
 from hamster_hoarding.cameras.quality import assess
-from hamster_hoarding.config import Settings
+from hamster_hoarding.config import CameraSettings, Settings
 from hamster_hoarding.service import CaptureResult, CaptureService
 
 PREVIEW_SIZE = (480, 270)
 
 
 class CameraTile(QGroupBox):
-    def __init__(self, name: str):
-        super().__init__(name)
+    def __init__(self, cam: CameraSettings, fields: list[str]):
+        super().__init__(cam.name)
+        self.cam = cam
         self.image = QLabel("no signal")
         self.image.setFixedSize(*PREVIEW_SIZE)
         self.image.setAlignment(Qt.AlignCenter)
@@ -35,6 +37,12 @@ class CameraTile(QGroupBox):
         layout = QVBoxLayout(self)
         layout.addWidget(self.image)
         layout.addWidget(self.info)
+        form = QFormLayout()
+        for key in fields:
+            edit = QLineEdit(cam.metadata.get(key, ""))
+            edit.textChanged.connect(lambda text, k=key: self.cam.metadata.__setitem__(k, text))
+            form.addRow(key, edit)
+        layout.addLayout(form)
 
     def show_frame(self, bgr) -> None:
         rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
@@ -82,7 +90,7 @@ class MainWindow(QMainWindow):
         grid = QGridLayout()
         self.tiles: dict[str, CameraTile] = {}
         for i, cam in enumerate(settings.cameras):
-            tile = CameraTile(cam.name)
+            tile = CameraTile(cam, settings.metadata_fields)
             self.tiles[cam.name] = tile
             grid.addWidget(tile, i // 2, i % 2)
         root.addLayout(grid)
@@ -97,6 +105,8 @@ class MainWindow(QMainWindow):
         self.interval.setValue(settings.interval_minutes)
         self.capture_btn = QPushButton("Capture now")
         self.start_btn = QPushButton("Start schedule")
+        self.pause_btn = QPushButton("Pause")
+        self.pause_btn.setEnabled(False)
         self.stop_btn = QPushButton("Stop schedule")
         self.stop_btn.setEnabled(False)
         controls.addWidget(QLabel("Session:"))
@@ -105,6 +115,7 @@ class MainWindow(QMainWindow):
         controls.addWidget(self.interval)
         controls.addWidget(self.capture_btn)
         controls.addWidget(self.start_btn)
+        controls.addWidget(self.pause_btn)
         controls.addWidget(self.stop_btn)
         root.addLayout(controls)
 
@@ -115,6 +126,7 @@ class MainWindow(QMainWindow):
 
         self.capture_btn.clicked.connect(self.capture_now)
         self.start_btn.clicked.connect(self.start_schedule)
+        self.pause_btn.clicked.connect(self.toggle_pause)
         self.stop_btn.clicked.connect(self.stop_schedule)
 
         self.timer = QTimer(self)
@@ -157,14 +169,27 @@ class MainWindow(QMainWindow):
         self.settings.interval_minutes = self.interval.value()
         self.service.start_schedule()
         self.start_btn.setEnabled(False)
+        self.pause_btn.setEnabled(True)
         self.stop_btn.setEnabled(True)
         self.interval.setEnabled(False)
         self.session_edit.setEnabled(False)
         self._log(f"Schedule started: every {self.interval.value():g} min")
 
+    def toggle_pause(self) -> None:
+        if self.service.paused:
+            self.service.resume()
+            self.pause_btn.setText("Pause")
+            self._log("Resumed (capturing now)")
+        else:
+            self.service.pause()
+            self.pause_btn.setText("Resume")
+            self._log("Paused - scheduled captures suspended")
+
     def stop_schedule(self) -> None:
         self.service.stop_schedule()
         self.start_btn.setEnabled(True)
+        self.pause_btn.setEnabled(False)
+        self.pause_btn.setText("Pause")
         self.stop_btn.setEnabled(False)
         self.interval.setEnabled(True)
         self.session_edit.setEnabled(True)

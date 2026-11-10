@@ -24,6 +24,8 @@ class CameraSettings:
     brightness: float | None = None
     exposure: float | None = None
     gain: float | None = None
+    # Values for Settings.metadata_fields, e.g. {"animal_id": "H07", "cage": "A"}
+    metadata: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -31,6 +33,10 @@ class Settings:
     output_dir: str = "data"
     interval_minutes: float = 10.0
     jpeg_quality: int = 95
+    # Per-camera metadata keys: each becomes a CSV column and editable field in the GUI.
+    metadata_fields: list[str] = field(default_factory=list)
+    # Subset of metadata_fields whose values are also put in the image file name.
+    filename_fields: list[str] = field(default_factory=list)
     cameras: list[CameraSettings] = field(default_factory=list)
 
 
@@ -53,6 +59,8 @@ def save_settings(settings: Settings, path: Path) -> None:
         "output_dir": settings.output_dir,
         "interval_minutes": settings.interval_minutes,
         "jpeg_quality": settings.jpeg_quality,
+        "metadata_fields": settings.metadata_fields,
+        "filename_fields": settings.filename_fields,
         "cameras": [vars(c) for c in settings.cameras],
     }
     Path(path).write_text(yaml.safe_dump(data, sort_keys=False))
