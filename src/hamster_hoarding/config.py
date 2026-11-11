@@ -33,6 +33,8 @@ class Settings:
     output_dir: str = "data"
     interval_minutes: float = 10.0
     jpeg_quality: int = 95
+    # Seconds after opening a camera before images are trusted (auto-exposure settling).
+    warmup_seconds: float = 3.0
     # Per-camera metadata keys: each becomes a CSV column and editable field in the GUI.
     metadata_fields: list[str] = field(default_factory=list)
     # Subset of metadata_fields whose values are also put in the image file name.

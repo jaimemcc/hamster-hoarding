@@ -61,8 +61,10 @@ class CaptureService:
         with self._capture_lock:
             for name, cam in self.cameras.items():
                 try:
-                    # require a frame newer than now so a stale one is never saved
-                    frame = cam.wait_for_frame(newer_than=time.time())
+                    # require a frame newer than now (and past the auto-exposure warm-up)
+                    # so a stale or unsettled one is never saved
+                    newer_than = max(time.time(), cam.started_at + self.settings.warmup_seconds)
+                    frame = cam.wait_for_frame(newer_than=newer_than, timeout=newer_than - time.time() + 5)
                     if frame is None:
                         raise RuntimeError(cam.error or "no frame received")
                     quality = assess(frame.image)

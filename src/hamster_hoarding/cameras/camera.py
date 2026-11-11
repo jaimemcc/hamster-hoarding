@@ -32,7 +32,7 @@ class Camera:
         self._lock = threading.Lock()
         self._frame: Frame | None = None
         self.error: str | None = None
-
+        self.started_at = 0.0
     @property
     def name(self) -> str:
         return self.settings.name
@@ -49,6 +49,7 @@ class Camera:
     def start(self) -> None:
         self.error = None
         self._open()
+        self.started_at = time.time()
         self._stop.clear()
         self._thread = threading.Thread(target=self._run, name=f"cam-{self.name}", daemon=True)
         self._thread.start()

@@ -4,6 +4,10 @@
 State: working GUI + capture pipeline on mock cameras, pushed to `main`. 4 tests pass, lint clean.
 Not yet tried with real ELP-USBFHD01M-BL170IR cameras.
 
+Hardware findings (Windows, 1 ELP camera): it opens at DSHOW index 1 (index 0 is the laptop
+webcam); 1080p MJPG works; the first ~1s after opening is overexposed, so `warmup_seconds`
+(default 3) delays the first capture. Real-camera run in `config/local.yaml` (git-ignored).
+
 Open questions for the user:
 - Which per-camera metadata fields are wanted (placeholders: `animal_id`, `cage`)?
 - Save GUI-edited metadata back to `config/local.yaml` so it survives restarts?

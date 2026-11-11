@@ -14,6 +14,7 @@ def test_default_config_loads():
 def test_metadata_in_filename_and_csv(tmp_path):
     settings = Settings(
         output_dir=str(tmp_path),
+        warmup_seconds=0,
         metadata_fields=["animal_id", "cage"],
         filename_fields=["animal_id"],
         cameras=[CameraSettings(name="cam1", device="mock", metadata={"animal_id": "H 07"})],
@@ -34,6 +35,7 @@ def test_metadata_in_filename_and_csv(tmp_path):
 def test_pause_skips_scheduled_captures(tmp_path):
     settings = Settings(
         output_dir=str(tmp_path),
+        warmup_seconds=0,
         interval_minutes=0.02,
         cameras=[CameraSettings(name="cam1", device="mock")],
     )
@@ -58,6 +60,7 @@ def test_pause_skips_scheduled_captures(tmp_path):
 def test_capture_layout_and_log(tmp_path):
     settings = Settings(
         output_dir=str(tmp_path),
+        warmup_seconds=0,
         cameras=[CameraSettings(name=f"cam{i}", device="mock") for i in (1, 2)],
     )
     service = CaptureService(settings)
