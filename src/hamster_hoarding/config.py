@@ -20,7 +20,9 @@ class CameraSettings:
     width: int = 1920
     height: int = 1080
     fourcc: str = "MJPG"
-    # Optional OpenCV property overrides; None leaves the camera default / auto.
+    rotate: int = 0  # degrees clockwise: 0, 90, 180 or 270 (for upside-down mounting)
+    # Optional device controls. exposure None = auto. Units are platform-specific, see
+    # EXPOSURE_RANGE in cameras/camera.py.
     brightness: float | None = None
     exposure: float | None = None
     gain: float | None = None

@@ -32,6 +32,19 @@ def test_metadata_in_filename_and_csv(tmp_path):
     assert row["animal_id"] == "H 07" and row["cage"] == ""
 
 
+def test_rotate_swaps_dimensions():
+    from hamster_hoarding.cameras.camera import create_camera
+
+    cam = create_camera(CameraSettings(name="r", device="mock", rotate=90))
+    cam.start()
+    try:
+        frame = cam.wait_for_frame()
+    finally:
+        cam.stop()
+    h, w = frame.image.shape[:2]
+    assert (h, w) == (640, 480)
+
+
 def test_pause_skips_scheduled_captures(tmp_path):
     settings = Settings(
         output_dir=str(tmp_path),

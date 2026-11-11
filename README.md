@@ -30,9 +30,11 @@ pixi run test
 pixi run lint
 ```
 
-The default config uses mock cameras so the GUI runs without hardware. Copy
-`config/default.yaml` to `config/local.yaml` and set each camera's `device`
-(index on Windows; a stable `/dev/v4l/by-path/...` path on Linux) to use real ones.
+The default config uses mock cameras so the GUI runs without hardware. For real ones run
+`pixi run detect --skip 0 --write-config` (skip the laptop's built-in webcam; snapshots go to
+`data/detect/` so you can see which physical camera is which), then edit `config/local.yaml`.
+Devices are indices on Windows and stable `/dev/v4l/by-path/...` paths on Linux. Per camera you can
+also set `rotate` (0/90/180/270), `exposure` (omit for auto) and `gain`.
 
 ## Data layout
 

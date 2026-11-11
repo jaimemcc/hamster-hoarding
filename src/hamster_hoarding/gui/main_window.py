@@ -4,6 +4,7 @@ import cv2
 from PySide6.QtCore import QObject, Qt, QTimer, Signal
 from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtWidgets import (
+    QCheckBox,
     QDoubleSpinBox,
     QFormLayout,
     QGridLayout,
@@ -14,10 +15,12 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QPlainTextEdit,
     QPushButton,
+    QSpinBox,
     QVBoxLayout,
     QWidget,
 )
 
+from hamster_hoarding.cameras.camera import EXPOSURE_RANGE
 from hamster_hoarding.cameras.quality import assess
 from hamster_hoarding.config import CameraSettings, Settings
 from hamster_hoarding.service import CaptureResult, CaptureService
@@ -26,9 +29,10 @@ PREVIEW_SIZE = (480, 270)
 
 
 class CameraTile(QGroupBox):
-    def __init__(self, cam: CameraSettings, fields: list[str]):
+    def __init__(self, cam: CameraSettings, fields: list[str], on_controls_changed):
         super().__init__(cam.name)
         self.cam = cam
+        self._on_controls_changed = on_controls_changed
         self.image = QLabel("no signal")
         self.image.setFixedSize(*PREVIEW_SIZE)
         self.image.setAlignment(Qt.AlignCenter)
@@ -37,12 +41,41 @@ class CameraTile(QGroupBox):
         layout = QVBoxLayout(self)
         layout.addWidget(self.image)
         layout.addWidget(self.info)
+
+        lo, hi = EXPOSURE_RANGE
+        self.auto_exp = QCheckBox("Auto exposure")
+        self.auto_exp.setChecked(cam.exposure is None)
+        self.exposure = QSpinBox()
+        self.exposure.setRange(lo, hi)
+        self.exposure.setValue(int(cam.exposure) if cam.exposure is not None else (lo + hi) // 2)
+        self.exposure.setEnabled(cam.exposure is not None)
+        self.gain = QSpinBox()
+        self.gain.setRange(0, 255)
+        self.gain.setValue(int(cam.gain or 0))
+        self.auto_exp.toggled.connect(self._controls_changed)
+        self.exposure.valueChanged.connect(self._controls_changed)
+        self.gain.valueChanged.connect(self._controls_changed)
+        row = QHBoxLayout()
+        row.addWidget(self.auto_exp)
+        row.addWidget(QLabel("Exposure"))
+        row.addWidget(self.exposure)
+        row.addWidget(QLabel("Gain"))
+        row.addWidget(self.gain)
+        layout.addLayout(row)
+
         form = QFormLayout()
         for key in fields:
             edit = QLineEdit(cam.metadata.get(key, ""))
             edit.textChanged.connect(lambda text, k=key: self.cam.metadata.__setitem__(k, text))
             form.addRow(key, edit)
         layout.addLayout(form)
+
+    def _controls_changed(self) -> None:
+        auto = self.auto_exp.isChecked()
+        self.exposure.setEnabled(not auto)
+        self.cam.exposure = None if auto else float(self.exposure.value())
+        self.cam.gain = float(self.gain.value())
+        self._on_controls_changed(self.cam.name)
 
     def show_frame(self, bgr) -> None:
         rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
@@ -90,7 +123,7 @@ class MainWindow(QMainWindow):
         grid = QGridLayout()
         self.tiles: dict[str, CameraTile] = {}
         for i, cam in enumerate(settings.cameras):
-            tile = CameraTile(cam, settings.metadata_fields)
+            tile = CameraTile(cam, settings.metadata_fields, self._apply_controls)
             self.tiles[cam.name] = tile
             grid.addWidget(tile, i // 2, i % 2)
         root.addLayout(grid)
@@ -139,6 +172,11 @@ class MainWindow(QMainWindow):
 
     def _log(self, text: str) -> None:
         self.log.appendPlainText(text)
+
+    def _apply_controls(self, name: str) -> None:
+        cam = self.service.cameras.get(name)
+        if cam is not None:
+            cam.apply_controls()
 
     def _refresh_previews(self) -> None:
         for name, cam in self.service.cameras.items():

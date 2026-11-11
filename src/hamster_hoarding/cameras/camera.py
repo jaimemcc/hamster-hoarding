@@ -10,10 +10,25 @@ from hamster_hoarding.config import CameraSettings
 
 if sys.platform == "win32":
     BACKEND = cv2.CAP_DSHOW
+    # DirectShow: exposure is log2 seconds (-13 .. -1); 0.75 = auto, 0.25 = manual
+    AUTO_EXPOSURE_ON, AUTO_EXPOSURE_OFF = 0.75, 0.25
+    EXPOSURE_RANGE = (-13, 0)
 elif sys.platform.startswith("linux"):
     BACKEND = cv2.CAP_V4L2
+    # V4L2: exposure_time_absolute in 100 us units; auto-mode menu 3 = auto, 1 = manual
+    AUTO_EXPOSURE_ON, AUTO_EXPOSURE_OFF = 3, 1
+    EXPOSURE_RANGE = (1, 5000)
 else:
     BACKEND = cv2.CAP_ANY
+    AUTO_EXPOSURE_ON, AUTO_EXPOSURE_OFF = 0.75, 0.25
+    EXPOSURE_RANGE = (-13, 0)
+
+
+ROTATIONS = {
+    90: cv2.ROTATE_90_CLOCKWISE,
+    180: cv2.ROTATE_180,
+    270: cv2.ROTATE_90_COUNTERCLOCKWISE,
+}
 
 
 @dataclass
@@ -46,6 +61,9 @@ class Camera:
     def _close(self) -> None:
         pass
 
+    def apply_controls(self) -> None:
+        """Push changed exposure/gain/brightness to the device (no-op by default)."""
+
     def start(self) -> None:
         self.error = None
         self._open()
@@ -55,9 +73,12 @@ class Camera:
         self._thread.start()
 
     def _run(self) -> None:
+        rotation = ROTATIONS.get(self.settings.rotate)
         while not self._stop.is_set():
             try:
                 image = self._read()
+                if image is not None and rotation is not None:
+                    image = cv2.rotate(image, rotation)
             except Exception as exc:  # noqa: BLE001 - keep thread alive; surfaced via .error
                 self.error = str(exc)
                 time.sleep(0.5)
@@ -94,6 +115,7 @@ class OpenCVCamera(Camera):
     def __init__(self, settings: CameraSettings):
         super().__init__(settings)
         self._cap: cv2.VideoCapture | None = None
+        self._cap_lock = threading.Lock()
 
     def _open(self) -> None:
         s = self.settings
@@ -105,17 +127,33 @@ class OpenCVCamera(Camera):
             cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*s.fourcc))
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, s.width)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, s.height)
-        for prop, value in (
-            (cv2.CAP_PROP_BRIGHTNESS, s.brightness),
-            (cv2.CAP_PROP_EXPOSURE, s.exposure),
-            (cv2.CAP_PROP_GAIN, s.gain),
-        ):
-            if value is not None:
-                cap.set(prop, value)
         self._cap = cap
+        self.apply_controls()
+
+    def apply_controls(self) -> None:
+        """Push exposure/gain/brightness to the device.
+
+        Cameras remember their last exposure mode, so the mode is always set explicitly.
+        """
+        if self._cap is None:
+            return
+        s = self.settings
+        with self._cap_lock:
+            if s.exposure is None:
+                self._cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, AUTO_EXPOSURE_ON)
+            else:
+                self._cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, AUTO_EXPOSURE_OFF)
+                self._cap.set(cv2.CAP_PROP_EXPOSURE, s.exposure)
+            if s.gain is not None:
+                self._cap.set(cv2.CAP_PROP_GAIN, s.gain)
+            if s.brightness is not None:
+                self._cap.set(cv2.CAP_PROP_BRIGHTNESS, s.brightness)
+        # restart the auto-exposure warm-up window after a change
+        self.started_at = time.time()
 
     def _read(self) -> np.ndarray | None:
-        ok, image = self._cap.read()
+        with self._cap_lock:
+            ok, image = self._cap.read()
         return image if ok else None
 
     def _close(self) -> None:

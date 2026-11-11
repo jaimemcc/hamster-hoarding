@@ -1,27 +1,29 @@
 # TODO
 
 ## Resume here (next session)
-State: working GUI + capture pipeline on mock cameras, pushed to `main`. 4 tests pass, lint clean.
-Not yet tried with real ELP-USBFHD01M-BL170IR cameras.
+State: working GUI + capture pipeline, tested on mock cameras and 1 real ELP camera (Windows).
+Pushed to `main`. 5 tests pass, lint clean. Only 1 ELP connected so far (4-camera setup untested).
 
 Hardware findings (Windows, 1 ELP camera): it opens at DSHOW index 1 (index 0 is the laptop
 webcam); 1080p MJPG works; the first ~1s after opening is overexposed, so `warmup_seconds`
-(default 3) delays the first capture. Real-camera run in `config/local.yaml` (git-ignored).
+(default 3) delays the first capture. Exposure/gain are controllable. Cameras REMEMBER their
+last exposure mode, so the app sets auto/manual explicitly on open. Exposure units differ per
+platform (DSHOW log2 seconds -13..0; V4L2 100us units): see `EXPOSURE_RANGE` in
+`cameras/camera.py`. The Linux V4L2 values there are UNTESTED.
+Real-camera config lives in `config/local.yaml` (git-ignored); `pixi run detect` helps make it.
 
 Open questions for the user:
 - Which per-camera metadata fields are wanted (placeholders: `animal_id`, `cage`)?
-- Save GUI-edited metadata back to `config/local.yaml` so it survives restarts?
+- Save GUI-edited metadata/exposure/gain back to `config/local.yaml` so it survives restarts?
 - Add a "resume last session" button, or is typing the session name fine?
+- Is the real camera mounting upside-down? (`rotate: 180` per camera is supported.)
 
 Suggested next steps, in order:
-1. Camera enumeration helper: list connected devices and generate `config/local.yaml`
-   (Windows indices; Linux `/dev/v4l/by-path/...`).
-2. Plug in the real cameras; verify 1080p MJPG capture and the 4-camera preview.
-3. Tune the quality thresholds in `cameras/quality.py` on real images (visible + IR modes).
-4. Per-camera exposure/gain/brightness controls in the GUI (V4L2 vs DirectShow differ).
-5. Persist metadata/settings from the GUI; resume-session button.
-6. Reconnect-on-drop and per-camera health; check USB bandwidth before going to 8 cameras.
-7. Add GitHub Actions CI (ruff + pytest). Then test on the Linux laptop (`pixi install`, `video` group).
+1. Plug in all 4 cameras; run `pixi run detect --skip 0 --write-config`, check the preview grid.
+2. Tune the quality thresholds in `cameras/quality.py` on real images (visible + IR modes).
+3. Persist metadata/settings from the GUI; resume-session button.
+4. Reconnect-on-drop and per-camera health; check USB bandwidth before going to 8 cameras.
+5. Add GitHub Actions CI (ruff + pytest). Then test on the Linux laptop (`pixi install`, `video` group).
 
 ## Setup
 - [x] Project skeleton, pixi environment (Windows + Linux)
@@ -31,8 +33,9 @@ Suggested next steps, in order:
 ## Cameras
 - [x] Camera abstraction with threaded capture, OpenCV + mock backends
 - [x] Image-quality checks (brightness, clipping, sharpness)
-- [ ] Camera enumeration helper (list devices; generate config incl. Linux by-path names)
-- [ ] Per-camera settings in GUI: exposure, gain, brightness, resolution (V4L2 vs DirectShow differ)
+- [x] Camera enumeration helper (`pixi run detect [--skip 0] [--write-config]`)
+- [x] Per-camera exposure (auto/manual) and gain in GUI; `rotate` option per camera
+- [ ] Brightness/contrast/white-balance controls, resolution in GUI
 - [ ] Reconnect on camera drop/USB glitch; show per-camera health
 - [ ] Up to 8 cameras: check USB bandwidth (MJPG, separate controllers/hubs), GUI tile layout
 - [ ] Optional focus/white-balance lock so images are consistent over days
