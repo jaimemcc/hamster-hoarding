@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDoubleSpinBox,
+    QFileDialog,
     QFormLayout,
     QGridLayout,
     QGroupBox,
@@ -240,6 +241,17 @@ class MainWindow(QMainWindow):
         controls.addWidget(self.stop_btn)
         root.addLayout(controls)
 
+        output_row = QHBoxLayout()
+        output_row.addWidget(QLabel("Data folder:"))
+        self.output_label = QLabel(settings.output_dir)
+        self.output_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.output_label.setToolTip(settings.output_dir)
+        self.output_btn = QPushButton("Choose folder...")
+        self.output_btn.setToolTip("Choose or create a parent folder for session folders")
+        output_row.addWidget(self.output_label, 1)
+        output_row.addWidget(self.output_btn)
+        root.addLayout(output_row)
+
         self.live_check = QCheckBox("Live preview")
         self.live_check.setChecked(settings.live_preview)
         self.live_check.setToolTip(
@@ -269,6 +281,7 @@ class MainWindow(QMainWindow):
         root.addWidget(self.log)
 
         self.note_btn.clicked.connect(self.add_note)
+        self.output_btn.clicked.connect(self.choose_output_folder)
         self.note_edit.returnPressed.connect(self.add_note)
         self.capture_btn.clicked.connect(self.capture_now)
         self.resume_session_btn.clicked.connect(self.resume_last_session)
@@ -318,6 +331,7 @@ class MainWindow(QMainWindow):
 
     def _on_live_changed(self, errors: dict) -> None:
         self.live_check.setEnabled(True)
+        self._update_output_button()
         for tile in self.tiles.values():
             tile.set_live(self.live)
         for name, err in errors.items():
@@ -359,6 +373,34 @@ class MainWindow(QMainWindow):
         exists = bool(last) and (Path(self.settings.output_dir) / last).is_dir()
         self.resume_session_btn.setEnabled(exists and not self.service.running)
         self.resume_session_btn.setToolTip(f"Last session: {last}" if exists else "No previous session")
+
+    def _update_output_button(self) -> None:
+        self.output_btn.setEnabled(
+            not self.service.running and self.capture_btn.isEnabled() and not self.service.cameras_busy
+        )
+
+    def choose_output_folder(self) -> None:
+        if self.service.running or not self.capture_btn.isEnabled() or self.service.cameras_busy:
+            return
+        selected = QFileDialog.getExistingDirectory(
+            self, "Choose or create a data folder", str(Path(self.settings.output_dir).absolute())
+        )
+        if not selected:
+            return
+        if self.service.running or not self.capture_btn.isEnabled() or self.service.cameras_busy:
+            self._log("Data folder not changed: a capture or camera operation is in progress")
+            return
+        if Path(selected).resolve() == Path(self.settings.output_dir).resolve():
+            return
+        self.settings.output_dir = selected
+        self.settings.last_session = None
+        self.service.session = None
+        self.output_label.setText(selected)
+        self.output_label.setToolTip(selected)
+        self._load_history()
+        self._update_resume_button()
+        self._save_timer.start()
+        self._log(f"Data folder: {selected}. The next capture or note starts a session here.")
 
     def resume_last_session(self) -> None:
         last = self.settings.last_session
@@ -410,6 +452,7 @@ class MainWindow(QMainWindow):
     def capture_now(self) -> None:
         self._ensure_session()
         self.capture_btn.setEnabled(False)
+        self._update_output_button()
 
         def work():
             self.service.capture_all()
@@ -420,6 +463,7 @@ class MainWindow(QMainWindow):
         self._ensure_session()
         self.settings.interval_minutes = self.interval.value()
         self.service.start_schedule()
+        self._update_output_button()
         self.resume_session_btn.setEnabled(False)
         self.start_btn.setEnabled(False)
         self.pause_btn.setEnabled(True)
@@ -447,18 +491,22 @@ class MainWindow(QMainWindow):
         self.interval.setEnabled(True)
         self.session_edit.setEnabled(True)
         self._update_resume_button()
+        self._update_output_button()
         self._log_event("Schedule stopped")
 
     def _on_results(self, results: list[CaptureResult]) -> None:
         self.capture_btn.setEnabled(True)
         self._update_resume_button()
+        self._update_output_button()
         for r in results:
             if r.error:
                 self._log(f"{r.camera}: FAILED - {r.error}")
             else:
                 flag = "" if r.quality.ok else "  ⚠ " + ", ".join(r.quality.warnings)
                 self._log(f"{r.camera}: saved {r.path.name}{flag}")
-                self.tiles[r.camera].add_capture(r.path, self.live)
+                session = self.service.session
+                if session is not None and r.path.parent.parent.resolve() == session.root.resolve():
+                    self.tiles[r.camera].add_capture(r.path, self.live)
 
     def closeEvent(self, event) -> None:
         self.timer.stop()

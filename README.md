@@ -38,6 +38,13 @@ rotation and metadata can be edited in the GUI; changes are saved automatically 
 `config/last_used.yaml` and restored next time if "Load last saved settings on startup" is ticked.
 Use "Resume last session" to keep adding to the previous session folder after a restart.
 
+Use **Choose folder...** to select or create the parent data folder before a capture or schedule.
+Each session still has its own subfolder there, using the session name (or a generated name).
+Changing the parent folder does not move previous data and clears the last-session selection;
+to continue an existing session there, enter its folder name as the session name. The folder
+cannot be changed during a schedule (including while paused) or a capture. The choice is saved
+with the other GUI settings and restored on startup if the load-last-settings option is enabled.
+
 ### Saving USB bandwidth
 Untick "Live preview" once settings are dialled in. Cameras then stop streaming; each capture
 opens, warms up, grabs and closes the cameras one at a time (about 3-4 s per camera), so only

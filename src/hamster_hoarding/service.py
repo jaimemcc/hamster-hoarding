@@ -107,6 +107,10 @@ class CaptureService:
         return self._thread is not None and self._thread.is_alive()
 
     @property
+    def cameras_busy(self) -> bool:
+        return self._capture_lock.locked()
+
+    @property
     def paused(self) -> bool:
         return self._paused.is_set()
 
