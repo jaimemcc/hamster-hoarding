@@ -4,9 +4,9 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from hamster_hoarding.cameras.camera import Camera, create_camera
+from hamster_hoarding.cameras.camera import Camera, Frame, create_camera
 from hamster_hoarding.cameras.quality import Quality, assess
-from hamster_hoarding.config import Settings
+from hamster_hoarding.config import CameraSettings, Settings
 from hamster_hoarding.storage import Session
 
 
@@ -33,45 +33,66 @@ class CaptureService:
         self._capture_lock = threading.Lock()
 
     def open_cameras(self) -> dict[str, str]:
-        """Start all cameras. Returns {camera_name: error} for those that failed."""
+        """Start all cameras (live preview). Returns {camera_name: error} for failures."""
         errors = {}
-        for cs in self.settings.cameras:
-            if cs.name in self.cameras:
-                continue
-            cam = create_camera(cs)
-            try:
-                cam.start()
-            except Exception as exc:  # noqa: BLE001 - report per-camera failure, keep going
-                errors[cs.name] = str(exc)
-                continue
-            self.cameras[cs.name] = cam
+        with self._capture_lock:
+            for cs in self.settings.cameras:
+                if cs.name in self.cameras:
+                    continue
+                cam = create_camera(cs)
+                try:
+                    cam.start()
+                except Exception as exc:  # noqa: BLE001 - report per-camera failure, keep going
+                    errors[cs.name] = str(exc)
+                    continue
+                self.cameras[cs.name] = cam
         return errors
 
     def close_cameras(self) -> None:
+        """Stop all streams. Captures still work: cameras are then opened one at a time."""
+        with self._capture_lock:
+            for cam in self.cameras.values():
+                cam.stop()
+            self.cameras.clear()
+
+    def shutdown(self) -> None:
         self.stop_schedule()
-        for cam in self.cameras.values():
-            cam.stop()
-        self.cameras.clear()
+        self.close_cameras()
+
+    def _grab(self, cs: CameraSettings) -> tuple[Frame, Quality]:
+        """Get one settled frame, opening the camera just for this shot if it isn't streaming."""
+        cam = self.cameras.get(cs.name)
+        temporary = cam is None
+        if temporary:
+            cam = create_camera(cs)
+            cam.start()
+        try:
+            # require a frame newer than now (and past the auto-exposure warm-up)
+            # so a stale or unsettled one is never saved
+            newer_than = max(time.time(), cam.started_at + self.settings.warmup_seconds)
+            timeout = newer_than - time.time() + 5
+            frame = cam.wait_for_frame(newer_than=newer_than, timeout=timeout)
+            if frame is None:
+                raise RuntimeError(cam.error or "no frame received")
+            return frame, assess(frame.image)
+        finally:
+            if temporary:
+                cam.stop()
 
     def capture_all(self) -> list[CaptureResult]:
+        """Capture every configured camera, one after another (never in parallel)."""
         if self.session is None:
             self.session = Session(self.settings)
             self.session.start()
         results = []
         with self._capture_lock:
-            for name, cam in self.cameras.items():
+            for cs in self.settings.cameras:
                 try:
-                    # require a frame newer than now (and past the auto-exposure warm-up)
-                    # so a stale or unsettled one is never saved
-                    newer_than = max(time.time(), cam.started_at + self.settings.warmup_seconds)
-                    frame = cam.wait_for_frame(newer_than=newer_than, timeout=newer_than - time.time() + 5)
-                    if frame is None:
-                        raise RuntimeError(cam.error or "no frame received")
-                    quality = assess(frame.image)
-                    path = self.session.save_image(cam.settings, frame, quality)
-                    results.append(CaptureResult(name, path, quality))
+                    frame, quality = self._grab(cs)
+                    path = self.session.save_image(cs, frame, quality)
+                    results.append(CaptureResult(cs.name, path, quality))
                 except Exception as exc:  # noqa: BLE001 - one bad camera must not stop the rest
-                    results.append(CaptureResult(name, None, None, str(exc)))
+                    results.append(CaptureResult(cs.name, None, None, str(exc)))
         if self.on_results:
             self.on_results(results)
         return results

@@ -67,7 +67,7 @@ def test_pause_skips_scheduled_captures(tmp_path):
         time.sleep(1.5)
         assert len(list((tmp_path / "p" / "cam1").glob("*.jpg"))) > count
     finally:
-        service.close_cameras()
+        service.shutdown()
 
 
 def test_settings_roundtrip_and_startup_choice(tmp_path, monkeypatch):
@@ -122,6 +122,63 @@ def test_resume_session_keeps_data_and_adds_new_columns(tmp_path):
     assert len(rows) == 2
     assert rows[0]["animal_id"] == "H1" and rows[0]["condition"] == ""
     assert rows[1]["condition"] == "drug"
+
+
+def test_capture_without_streaming_opens_one_camera_at_a_time(tmp_path, monkeypatch):
+    from hamster_hoarding import service as service_module
+
+    open_now, peak, opened = set(), [0], []
+    real_create = service_module.create_camera
+
+    def tracking_create(cs):
+        cam = real_create(cs)
+        start, stop = cam.start, cam.stop
+
+        def tracked_start():
+            start()
+            open_now.add(cs.name)
+            opened.append(cs.name)
+            peak[0] = max(peak[0], len(open_now))
+
+        def tracked_stop():
+            stop()
+            open_now.discard(cs.name)
+
+        cam.start, cam.stop = tracked_start, tracked_stop
+        return cam
+
+    monkeypatch.setattr(service_module, "create_camera", tracking_create)
+    settings = Settings(
+        output_dir=str(tmp_path),
+        warmup_seconds=0,
+        live_preview=False,
+        cameras=[CameraSettings(name=f"cam{i}", device="mock") for i in (1, 2, 3)],
+    )
+    service = CaptureService(settings)  # note: open_cameras() never called
+    service.new_session("od")
+    results = service.capture_all()
+
+    assert all(r.error is None for r in results)
+    assert opened == ["cam1", "cam2", "cam3"]
+    assert peak[0] == 1 and not open_now and not service.cameras
+    session = service.session
+    assert [len(session.images(f"cam{i}")) for i in (1, 2, 3)] == [1, 1, 1]
+
+
+def test_capture_all_works_while_streaming(tmp_path):
+    settings = Settings(
+        output_dir=str(tmp_path),
+        warmup_seconds=0,
+        cameras=[CameraSettings(name="cam1", device="mock")],
+    )
+    service = CaptureService(settings)
+    service.open_cameras()
+    try:
+        service.new_session("live")
+        assert service.capture_all()[0].error is None
+        assert "cam1" in service.cameras  # stream left running
+    finally:
+        service.shutdown()
 
 
 def test_capture_layout_and_log(tmp_path):

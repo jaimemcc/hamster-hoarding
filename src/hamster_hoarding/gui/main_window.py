@@ -31,6 +31,8 @@ PREVIEW_SIZE = (480, 270)
 
 
 class CameraTile(QGroupBox):
+    step_requested = Signal(int)  # -1 = earlier capture, +1 = later
+
     def __init__(self, cam: CameraSettings, fields: list[str], on_changed):
         """`on_changed(name, hardware)` fires on edits; hardware=True means re-apply controls."""
         super().__init__(cam.name)
@@ -44,6 +46,23 @@ class CameraTile(QGroupBox):
         layout = QVBoxLayout(self)
         layout.addWidget(self.image)
         layout.addWidget(self.info)
+
+        self.history: list[Path] = []
+        self.browse_index: int | None = None  # None = follow live / newest
+        self.prev_btn = QPushButton("◀")
+        self.next_btn = QPushButton("▶")
+        self.history_label = QLabel("no captures yet")
+        self.prev_btn.setEnabled(False)
+        self.next_btn.setEnabled(False)
+        self.prev_btn.setToolTip("Earlier capture")
+        self.next_btn.setToolTip("Later capture (past the newest returns to live)")
+        nav = QHBoxLayout()
+        nav.addWidget(self.prev_btn)
+        nav.addWidget(self.next_btn)
+        nav.addWidget(self.history_label, 1)
+        layout.addLayout(nav)
+        self.prev_btn.clicked.connect(lambda: self.step_requested.emit(-1))
+        self.next_btn.clicked.connect(lambda: self.step_requested.emit(1))
 
         lo, hi = EXPOSURE_RANGE
         self.auto_exp = QCheckBox("Auto exposure")
@@ -96,6 +115,7 @@ class CameraTile(QGroupBox):
         self._on_changed(self.cam.name, True)
 
     def show_frame(self, bgr) -> None:
+        """Display a BGR image (live frame or one loaded from disk) with its quality readout."""
         rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
         h, w, _ = rgb.shape
         qimg = QImage(rgb.data, w, h, 3 * w, QImage.Format_RGB888)
@@ -114,13 +134,59 @@ class CameraTile(QGroupBox):
         self.info.setText(text)
 
     def show_error(self, message: str) -> None:
+        self.image.setPixmap(QPixmap())
         self.image.setText(message)
+
+    # --- history browsing -------------------------------------------------
+    def set_history(self, paths: list[Path], live: bool) -> None:
+        self.history = list(paths)
+        self.browse_index = None
+        self._refresh_static(live)
+
+    def add_capture(self, path: Path, live: bool) -> None:
+        self.history.append(path)
+        self._refresh_static(live)
+
+    def set_live(self, live: bool) -> None:
+        self._refresh_static(live)
+
+    def step(self, delta: int, live: bool) -> None:
+        if not self.history:
+            return
+        current = len(self.history) - 1 if self.browse_index is None else self.browse_index
+        target = min(max(current + delta, 0), len(self.history) - 1)
+        # stepping onto the newest image goes back to following (live view, or newest capture)
+        self.browse_index = None if target == len(self.history) - 1 else target
+        self._refresh_static(live)
+
+    def _refresh_static(self, live: bool) -> None:
+        """Show the selected stored image, unless the live stream is being followed."""
+        n = len(self.history)
+        self.prev_btn.setEnabled(n > 0 and self.browse_index != 0 and n > 1)
+        self.next_btn.setEnabled(self.browse_index is not None)
+        if self.browse_index is None and live:
+            self.history_label.setText(f"live  ({n} captured)")
+            return
+        if n == 0:
+            self.history_label.setText("no captures yet")
+            if not live:
+                self.show_error("live preview off")
+            return
+        index = n - 1 if self.browse_index is None else self.browse_index
+        path = self.history[index]
+        self.history_label.setText(f"{index + 1}/{n}  {path.name}")
+        image = cv2.imread(str(path))
+        if image is None:
+            self.show_error(f"cannot read {path.name}")
+        else:
+            self.show_frame(image)
 
 
 class _Bridge(QObject):
     """Moves results from worker threads onto the GUI thread."""
 
     results = Signal(list)
+    live_changed = Signal(dict)  # {camera: error} after opening/closing streams
 
 
 class MainWindow(QMainWindow):
@@ -132,6 +198,7 @@ class MainWindow(QMainWindow):
 
         self.bridge = _Bridge()
         self.bridge.results.connect(self._on_results)
+        self.bridge.live_changed.connect(self._on_live_changed)
         self.service.on_results = self.bridge.results.emit
 
         central = QWidget()
@@ -143,6 +210,7 @@ class MainWindow(QMainWindow):
         for i, cam in enumerate(settings.cameras):
             tile = CameraTile(cam, settings.metadata_fields, self._tile_changed)
             self.tiles[cam.name] = tile
+            tile.step_requested.connect(lambda delta, t=tile: t.step(delta, self.live))
             grid.addWidget(tile, i // 2, i % 2)
         root.addLayout(grid)
 
@@ -172,6 +240,14 @@ class MainWindow(QMainWindow):
         controls.addWidget(self.stop_btn)
         root.addLayout(controls)
 
+        self.live_check = QCheckBox("Live preview")
+        self.live_check.setChecked(settings.live_preview)
+        self.live_check.setToolTip(
+            "On: all cameras stream continuously (use this to adjust settings).\n"
+            "Off: cameras are opened one at a time only to take each capture, which\n"
+            "keeps USB bandwidth free. Tiles then show the last captured image."
+        )
+        root.addWidget(self.live_check)
         self.load_last_check = QCheckBox("Load last saved settings on startup")
         self.load_last_check.setChecked(settings.load_last_saved)
         self.load_last_check.setToolTip(f"Settings are saved automatically to {LAST_USED_CONFIG}")
@@ -189,6 +265,7 @@ class MainWindow(QMainWindow):
         self.stop_btn.clicked.connect(self.stop_schedule)
         self.interval.valueChanged.connect(self._interval_changed)
         self.load_last_check.toggled.connect(self._load_last_toggled)
+        self.live_check.toggled.connect(self._live_toggled)
 
         # Debounced so typing doesn't rewrite the file on every keystroke.
         self._save_timer = QTimer(self)
@@ -201,9 +278,45 @@ class MainWindow(QMainWindow):
         self.timer.timeout.connect(self._refresh_previews)
         self.timer.start(200)
 
-        for name, err in self.service.open_cameras().items():
+        for tile in self.tiles.values():
+            tile.set_live(self.live)
+        if self.live:
+            for name, err in self.service.open_cameras().items():
+                self._log(f"{name}: {err}")
+                self.tiles[name].show_error(err)
+
+    @property
+    def live(self) -> bool:
+        return self.settings.live_preview
+
+    def _live_toggled(self, checked: bool) -> None:
+        self.settings.live_preview = checked
+        self.live_check.setEnabled(False)  # re-enabled once the streams have opened/closed
+        self._save_timer.start()
+
+        def work():
+            errors = {}
+            if checked:
+                errors = self.service.open_cameras()
+            else:
+                self.service.close_cameras()
+            self.bridge.live_changed.emit(errors)
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _on_live_changed(self, errors: dict) -> None:
+        self.live_check.setEnabled(True)
+        for tile in self.tiles.values():
+            tile.set_live(self.live)
+        for name, err in errors.items():
             self._log(f"{name}: {err}")
             self.tiles[name].show_error(err)
+        self._log("Live preview " + ("on" if self.live else "off - cameras open only while capturing"))
+
+    def _load_history(self) -> None:
+        session = self.service.session
+        for name, tile in self.tiles.items():
+            tile.set_history(session.images(name) if session else [], self.live)
 
     def _log(self, text: str) -> None:
         self.log.appendPlainText(text)
@@ -240,12 +353,14 @@ class MainWindow(QMainWindow):
         self.session_edit.setText(last)
         self.service.new_session(last)  # appends to the existing folder and CSV
         self._log(f"Resumed session: {self.service.session.root}")
+        self._load_history()
 
     def _refresh_previews(self) -> None:
         for name, cam in self.service.cameras.items():
+            tile = self.tiles[name]
             frame = cam.latest()
-            if frame is not None:
-                self.tiles[name].show_frame(frame.image)
+            if frame is not None and tile.browse_index is None and self.live:
+                tile.show_frame(frame.image)
 
     def _ensure_session(self) -> None:
         # A session is fixed once created; changing the name starts a new one.
@@ -254,6 +369,7 @@ class MainWindow(QMainWindow):
         if current is None or (wanted and wanted != current.session_id):
             self.service.new_session(wanted)
             self._log(f"Session: {self.service.session.root}")
+            self._load_history()
         self.settings.last_session = self.service.session.session_id
         self._save_timer.start()
 
@@ -308,10 +424,11 @@ class MainWindow(QMainWindow):
             else:
                 flag = "" if r.quality.ok else "  ⚠ " + ", ".join(r.quality.warnings)
                 self._log(f"{r.camera}: saved {r.path.name}{flag}")
+                self.tiles[r.camera].add_capture(r.path, self.live)
 
     def closeEvent(self, event) -> None:
         self.timer.stop()
         self._save_timer.stop()
         self._save_state()
-        self.service.close_cameras()
+        self.service.shutdown()
         super().closeEvent(event)

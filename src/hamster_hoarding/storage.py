@@ -71,6 +71,15 @@ class Session:
                 writer.writerow(self.columns)
                 writer.writerows(r + [""] * len(missing) for r in rows[1:])
 
+    def images(self, camera: str) -> list[Path]:
+        """Existing images for a camera in capture order (from the log)."""
+        if not self.log_path.exists():
+            return []
+        with self.log_path.open(newline="") as f:
+            rows = csv.DictReader(f)
+            paths = [self.root / r["file"] for r in rows if r.get("camera") == camera]
+        return [p for p in paths if p.exists()]
+
     def save_image(self, camera: CameraSettings, frame: Frame, quality: Quality) -> Path:
         when = datetime.fromtimestamp(frame.timestamp).astimezone()
         name = camera.name

@@ -44,6 +44,7 @@ class Settings:
     filename_fields: list[str] = field(default_factory=list)
     # GUI state, saved to LAST_USED_CONFIG automatically.
     last_session: str | None = None
+    live_preview: bool = True  # False: cameras only stream while capturing (saves USB bandwidth)
     load_last_saved: bool = False  # on startup, use LAST_USED_CONFIG instead of the base config
     cameras: list[CameraSettings] = field(default_factory=list)
 

@@ -38,6 +38,13 @@ rotation and metadata can be edited in the GUI; changes are saved automatically 
 `config/last_used.yaml` and restored next time if "Load last saved settings on startup" is ticked.
 Use "Resume last session" to keep adding to the previous session folder after a restart.
 
+### Saving USB bandwidth
+Untick "Live preview" once settings are dialled in. Cameras then stop streaming; each capture
+opens, warms up, grabs and closes the cameras one at a time (about 3-4 s per camera), so only
+one camera is on the USB bus at once. Tiles keep showing the last captured image, and the
+◀/▶ buttons on each tile browse earlier captures of that camera while capture keeps running.
+Exposure/gain can only be previewed with Live preview on.
+
 ## Data layout
 
 ```
