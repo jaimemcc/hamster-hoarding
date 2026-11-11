@@ -53,12 +53,23 @@ class Session:
         if not meta_path.exists():
             meta_path.write_text(json.dumps(meta, indent=2))
         if self.log_path.exists():
-            # Resuming into an existing session: keep its column layout.
-            with self.log_path.open(newline="") as f:
-                self.columns = next(csv.reader(f), self.columns)
+            self._migrate_columns()
         else:
             with self.log_path.open("w", newline="") as f:
                 csv.writer(f).writerow(self.columns)
+
+    def _migrate_columns(self) -> None:
+        """Resuming an existing session: keep its columns, appending any new metadata fields."""
+        with self.log_path.open(newline="") as f:
+            rows = list(csv.reader(f))
+        existing = rows[0] if rows else []
+        missing = [c for c in self.columns if c not in existing]
+        self.columns = existing + missing
+        if missing or not rows:
+            with self.log_path.open("w", newline="") as f:
+                writer = csv.writer(f)
+                writer.writerow(self.columns)
+                writer.writerows(r + [""] * len(missing) for r in rows[1:])
 
     def save_image(self, camera: CameraSettings, frame: Frame, quality: Quality) -> Path:
         when = datetime.fromtimestamp(frame.timestamp).astimezone()

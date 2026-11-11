@@ -1,10 +1,12 @@
 import threading
+from pathlib import Path
 
 import cv2
 from PySide6.QtCore import QObject, Qt, QTimer, Signal
 from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtWidgets import (
     QCheckBox,
+    QComboBox,
     QDoubleSpinBox,
     QFormLayout,
     QGridLayout,
@@ -22,17 +24,18 @@ from PySide6.QtWidgets import (
 
 from hamster_hoarding.cameras.camera import EXPOSURE_RANGE
 from hamster_hoarding.cameras.quality import assess
-from hamster_hoarding.config import CameraSettings, Settings
+from hamster_hoarding.config import LAST_USED_CONFIG, CameraSettings, Settings, save_settings
 from hamster_hoarding.service import CaptureResult, CaptureService
 
 PREVIEW_SIZE = (480, 270)
 
 
 class CameraTile(QGroupBox):
-    def __init__(self, cam: CameraSettings, fields: list[str], on_controls_changed):
+    def __init__(self, cam: CameraSettings, fields: list[str], on_changed):
+        """`on_changed(name, hardware)` fires on edits; hardware=True means re-apply controls."""
         super().__init__(cam.name)
         self.cam = cam
-        self._on_controls_changed = on_controls_changed
+        self._on_changed = on_changed
         self.image = QLabel("no signal")
         self.image.setFixedSize(*PREVIEW_SIZE)
         self.image.setAlignment(Qt.AlignCenter)
@@ -52,30 +55,45 @@ class CameraTile(QGroupBox):
         self.gain = QSpinBox()
         self.gain.setRange(0, 255)
         self.gain.setValue(int(cam.gain or 0))
+        self.rotate = QComboBox()
+        for degrees in (0, 90, 180, 270):
+            self.rotate.addItem(f"{degrees}°", degrees)
+        self.rotate.setCurrentIndex(max(0, self.rotate.findData(cam.rotate)))
         self.auto_exp.toggled.connect(self._controls_changed)
         self.exposure.valueChanged.connect(self._controls_changed)
         self.gain.valueChanged.connect(self._controls_changed)
+        self.rotate.currentIndexChanged.connect(self._rotate_changed)
         row = QHBoxLayout()
         row.addWidget(self.auto_exp)
         row.addWidget(QLabel("Exposure"))
         row.addWidget(self.exposure)
         row.addWidget(QLabel("Gain"))
         row.addWidget(self.gain)
+        row.addWidget(QLabel("Rotate"))
+        row.addWidget(self.rotate)
         layout.addLayout(row)
 
         form = QFormLayout()
         for key in fields:
             edit = QLineEdit(cam.metadata.get(key, ""))
-            edit.textChanged.connect(lambda text, k=key: self.cam.metadata.__setitem__(k, text))
+            edit.textChanged.connect(lambda text, k=key: self._metadata_changed(k, text))
             form.addRow(key, edit)
         layout.addLayout(form)
+
+    def _metadata_changed(self, key: str, text: str) -> None:
+        self.cam.metadata[key] = text
+        self._on_changed(self.cam.name, False)
+
+    def _rotate_changed(self) -> None:
+        self.cam.rotate = self.rotate.currentData()
+        self._on_changed(self.cam.name, False)
 
     def _controls_changed(self) -> None:
         auto = self.auto_exp.isChecked()
         self.exposure.setEnabled(not auto)
         self.cam.exposure = None if auto else float(self.exposure.value())
         self.cam.gain = float(self.gain.value())
-        self._on_controls_changed(self.cam.name)
+        self._on_changed(self.cam.name, True)
 
     def show_frame(self, bgr) -> None:
         rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
@@ -123,7 +141,7 @@ class MainWindow(QMainWindow):
         grid = QGridLayout()
         self.tiles: dict[str, CameraTile] = {}
         for i, cam in enumerate(settings.cameras):
-            tile = CameraTile(cam, settings.metadata_fields, self._apply_controls)
+            tile = CameraTile(cam, settings.metadata_fields, self._tile_changed)
             self.tiles[cam.name] = tile
             grid.addWidget(tile, i // 2, i % 2)
         root.addLayout(grid)
@@ -137,6 +155,7 @@ class MainWindow(QMainWindow):
         self.interval.setSuffix(" min")
         self.interval.setValue(settings.interval_minutes)
         self.capture_btn = QPushButton("Capture now")
+        self.resume_session_btn = QPushButton("Resume last session")
         self.start_btn = QPushButton("Start schedule")
         self.pause_btn = QPushButton("Pause")
         self.pause_btn.setEnabled(False)
@@ -144,6 +163,7 @@ class MainWindow(QMainWindow):
         self.stop_btn.setEnabled(False)
         controls.addWidget(QLabel("Session:"))
         controls.addWidget(self.session_edit)
+        controls.addWidget(self.resume_session_btn)
         controls.addWidget(QLabel("Interval:"))
         controls.addWidget(self.interval)
         controls.addWidget(self.capture_btn)
@@ -152,15 +172,30 @@ class MainWindow(QMainWindow):
         controls.addWidget(self.stop_btn)
         root.addLayout(controls)
 
+        self.load_last_check = QCheckBox("Load last saved settings on startup")
+        self.load_last_check.setChecked(settings.load_last_saved)
+        self.load_last_check.setToolTip(f"Settings are saved automatically to {LAST_USED_CONFIG}")
+        root.addWidget(self.load_last_check)
+
         self.log = QPlainTextEdit()
         self.log.setReadOnly(True)
         self.log.setMaximumHeight(140)
         root.addWidget(self.log)
 
         self.capture_btn.clicked.connect(self.capture_now)
+        self.resume_session_btn.clicked.connect(self.resume_last_session)
         self.start_btn.clicked.connect(self.start_schedule)
         self.pause_btn.clicked.connect(self.toggle_pause)
         self.stop_btn.clicked.connect(self.stop_schedule)
+        self.interval.valueChanged.connect(self._interval_changed)
+        self.load_last_check.toggled.connect(self._load_last_toggled)
+
+        # Debounced so typing doesn't rewrite the file on every keystroke.
+        self._save_timer = QTimer(self)
+        self._save_timer.setSingleShot(True)
+        self._save_timer.setInterval(500)
+        self._save_timer.timeout.connect(self._save_state)
+        self._update_resume_button()
 
         self.timer = QTimer(self)
         self.timer.timeout.connect(self._refresh_previews)
@@ -173,10 +208,38 @@ class MainWindow(QMainWindow):
     def _log(self, text: str) -> None:
         self.log.appendPlainText(text)
 
-    def _apply_controls(self, name: str) -> None:
-        cam = self.service.cameras.get(name)
-        if cam is not None:
-            cam.apply_controls()
+    def _tile_changed(self, name: str, hardware: bool) -> None:
+        if hardware:
+            cam = self.service.cameras.get(name)
+            if cam is not None:
+                cam.apply_controls()
+        self._save_timer.start()
+
+    def _interval_changed(self, value: float) -> None:
+        self.settings.interval_minutes = value
+        self._save_timer.start()
+
+    def _load_last_toggled(self, checked: bool) -> None:
+        self.settings.load_last_saved = checked
+        self._save_timer.start()
+
+    def _save_state(self) -> None:
+        try:
+            save_settings(self.settings, LAST_USED_CONFIG)
+        except OSError as exc:
+            self._log(f"Could not save settings: {exc}")
+
+    def _update_resume_button(self) -> None:
+        last = self.settings.last_session
+        exists = bool(last) and (Path(self.settings.output_dir) / last).is_dir()
+        self.resume_session_btn.setEnabled(exists and not self.service.running)
+        self.resume_session_btn.setToolTip(f"Last session: {last}" if exists else "No previous session")
+
+    def resume_last_session(self) -> None:
+        last = self.settings.last_session
+        self.session_edit.setText(last)
+        self.service.new_session(last)  # appends to the existing folder and CSV
+        self._log(f"Resumed session: {self.service.session.root}")
 
     def _refresh_previews(self) -> None:
         for name, cam in self.service.cameras.items():
@@ -189,9 +252,10 @@ class MainWindow(QMainWindow):
         wanted = self.session_edit.text().strip() or None
         current = self.service.session
         if current is None or (wanted and wanted != current.session_id):
-            self.settings.interval_minutes = self.interval.value()
             self.service.new_session(wanted)
             self._log(f"Session: {self.service.session.root}")
+        self.settings.last_session = self.service.session.session_id
+        self._save_timer.start()
 
     def capture_now(self) -> None:
         self._ensure_session()
@@ -206,6 +270,7 @@ class MainWindow(QMainWindow):
         self._ensure_session()
         self.settings.interval_minutes = self.interval.value()
         self.service.start_schedule()
+        self.resume_session_btn.setEnabled(False)
         self.start_btn.setEnabled(False)
         self.pause_btn.setEnabled(True)
         self.stop_btn.setEnabled(True)
@@ -231,10 +296,12 @@ class MainWindow(QMainWindow):
         self.stop_btn.setEnabled(False)
         self.interval.setEnabled(True)
         self.session_edit.setEnabled(True)
+        self._update_resume_button()
         self._log("Schedule stopped")
 
     def _on_results(self, results: list[CaptureResult]) -> None:
         self.capture_btn.setEnabled(True)
+        self._update_resume_button()
         for r in results:
             if r.error:
                 self._log(f"{r.camera}: FAILED - {r.error}")
@@ -244,5 +311,7 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event) -> None:
         self.timer.stop()
+        self._save_timer.stop()
+        self._save_state()
         self.service.close_cameras()
         super().closeEvent(event)

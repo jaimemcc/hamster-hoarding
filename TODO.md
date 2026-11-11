@@ -2,7 +2,7 @@
 
 ## Resume here (next session)
 State: working GUI + capture pipeline, tested on mock cameras and 1 real ELP camera (Windows).
-Pushed to `main`. 5 tests pass, lint clean. Only 1 ELP connected so far (4-camera setup untested).
+Pushed to `main`. 7 tests pass, lint clean. Only 1 ELP connected so far (4-camera setup untested).
 
 Hardware findings (Windows, 1 ELP camera): it opens at DSHOW index 1 (index 0 is the laptop
 webcam); 1080p MJPG works; the first ~1s after opening is overexposed, so `warmup_seconds`
@@ -11,19 +11,24 @@ last exposure mode, so the app sets auto/manual explicitly on open. Exposure uni
 platform (DSHOW log2 seconds -13..0; V4L2 100us units): see `EXPOSURE_RANGE` in
 `cameras/camera.py`. The Linux V4L2 values there are UNTESTED.
 Real-camera config lives in `config/local.yaml` (git-ignored); `pixi run detect` helps make it.
+GUI edits (exposure, gain, rotate, metadata, interval, last session) auto-save to
+`config/last_used.yaml` (git-ignored); the "Load last saved settings on startup" checkbox
+makes the next start use it. `--config` always overrides.
+
+LED array: the ELP LEDs and IR-cut filter appear to be driven by the board's photosensor, not
+UVC, so software LED control is probably not possible (unconfirmed for this exact model).
+Options: hardware (LED board power connector / disconnect LEDs / own IR lights), or cover/light the
+photosensor. Ask the user what they want; see conversation notes.
 
 Open questions for the user:
-- Which per-camera metadata fields are wanted (placeholders: `animal_id`, `cage`)?
-- Save GUI-edited metadata/exposure/gain back to `config/local.yaml` so it survives restarts?
-- Add a "resume last session" button, or is typing the session name fine?
-- Is the real camera mounting upside-down? (`rotate: 180` per camera is supported.)
+- Confirm camera mounting orientation once decided (rotate is now a per-tile GUI option).
+- Do they want to try an LED-off workaround (see above)?
 
 Suggested next steps, in order:
 1. Plug in all 4 cameras; run `pixi run detect --skip 0 --write-config`, check the preview grid.
 2. Tune the quality thresholds in `cameras/quality.py` on real images (visible + IR modes).
-3. Persist metadata/settings from the GUI; resume-session button.
-4. Reconnect-on-drop and per-camera health; check USB bandwidth before going to 8 cameras.
-5. Add GitHub Actions CI (ruff + pytest). Then test on the Linux laptop (`pixi install`, `video` group).
+3. Reconnect-on-drop and per-camera health; check USB bandwidth before going to 8 cameras.
+4. Add GitHub Actions CI (ruff + pytest). Then test on the Linux laptop (`pixi install`, `video` group).
 
 ## Setup
 - [x] Project skeleton, pixi environment (Windows + Linux)
@@ -34,7 +39,7 @@ Suggested next steps, in order:
 - [x] Camera abstraction with threaded capture, OpenCV + mock backends
 - [x] Image-quality checks (brightness, clipping, sharpness)
 - [x] Camera enumeration helper (`pixi run detect [--skip 0] [--write-config]`)
-- [x] Per-camera exposure (auto/manual) and gain in GUI; `rotate` option per camera
+- [x] Per-camera exposure (auto/manual), gain and rotate in GUI
 - [ ] Brightness/contrast/white-balance controls, resolution in GUI
 - [ ] Reconnect on camera drop/USB glitch; show per-camera health
 - [ ] Up to 8 cameras: check USB bandwidth (MJPG, separate controllers/hubs), GUI tile layout
@@ -51,14 +56,14 @@ Suggested next steps, in order:
 
 ## Data
 - [x] Session folder per camera, timestamped filenames, captures.csv, session.json
-- [x] Configurable per-camera metadata (CSV columns, optional filename inclusion)
-- [ ] Persist GUI-edited metadata back to config/local.yaml (currently only recorded in the CSV)
-- [ ] Decide metadata needed for later CV (animal/cage ID per camera, notes)
+- [x] Configurable per-camera metadata (CSV columns, optional filename inclusion); `animal_id`, `condition`
+- [x] GUI edits auto-saved to config/last_used.yaml; "load last saved settings" checkbox
+- [x] Resume last session button (appends to existing folder/CSV; new metadata columns are added)
 - [ ] Export / analysis helpers
 
 ## Experiment
 - [x] Run continuously until stopped; pause/resume (e.g. feeding)
-- [ ] Resume a session after a crash/restart (storage already appends to an existing session)
+- [x] Resume a session after a crash/restart ("Resume last session" button)
 
 ## Testing
 - [x] Mock camera + tests for capture layout

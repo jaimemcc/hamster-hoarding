@@ -16,6 +16,7 @@ recordings/
 
 # Local config
 config/local.yaml
+config/last_used.yaml
 
 # pixi
 .pixi/

@@ -33,8 +33,10 @@ pixi run lint
 The default config uses mock cameras so the GUI runs without hardware. For real ones run
 `pixi run detect --skip 0 --write-config` (skip the laptop's built-in webcam; snapshots go to
 `data/detect/` so you can see which physical camera is which), then edit `config/local.yaml`.
-Devices are indices on Windows and stable `/dev/v4l/by-path/...` paths on Linux. Per camera you can
-also set `rotate` (0/90/180/270), `exposure` (omit for auto) and `gain`.
+Devices are indices on Windows and stable `/dev/v4l/by-path/...` paths on Linux. Exposure, gain,
+rotation and metadata can be edited in the GUI; changes are saved automatically to
+`config/last_used.yaml` and restored next time if "Load last saved settings on startup" is ticked.
+Use "Resume last session" to keep adding to the previous session folder after a restart.
 
 ## Data layout
 

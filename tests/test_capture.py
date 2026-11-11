@@ -70,6 +70,60 @@ def test_pause_skips_scheduled_captures(tmp_path):
         service.close_cameras()
 
 
+def test_settings_roundtrip_and_startup_choice(tmp_path, monkeypatch):
+    from hamster_hoarding import config
+
+    last = tmp_path / "last_used.yaml"
+    monkeypatch.setattr(config, "LAST_USED_CONFIG", last)
+    base = load_settings()
+
+    # no saved file, or saved without the flag -> base config
+    assert config.resolve_startup_settings(config.DEFAULT_CONFIG)[1] == config.DEFAULT_CONFIG
+    base.cameras[0].rotate = 180
+    base.last_session = "s1"
+    config.save_settings(base, last)
+    assert config.resolve_startup_settings(config.DEFAULT_CONFIG)[1] == config.DEFAULT_CONFIG
+
+    base.load_last_saved = True
+    config.save_settings(base, last)
+    restored, path = config.resolve_startup_settings(config.DEFAULT_CONFIG)
+    assert path == last
+    assert restored == base
+
+    last.write_text("not: [valid")  # corrupt file falls back instead of crashing
+    assert config.resolve_startup_settings(config.DEFAULT_CONFIG)[1] == config.DEFAULT_CONFIG
+
+
+def test_resume_session_keeps_data_and_adds_new_columns(tmp_path):
+    cams = [CameraSettings(name="cam1", device="mock", metadata={"animal_id": "H1"})]
+    first = Settings(
+        output_dir=str(tmp_path), warmup_seconds=0, metadata_fields=["animal_id"], cameras=cams
+    )
+    service = CaptureService(first)
+    service.open_cameras()
+    service.new_session("s")
+    service.capture_all()
+    service.close_cameras()
+
+    second = Settings(
+        output_dir=str(tmp_path),
+        warmup_seconds=0,
+        metadata_fields=["animal_id", "condition"],
+        cameras=[CameraSettings(name="cam1", device="mock", metadata={"condition": "drug"})],
+    )
+    service = CaptureService(second)
+    service.open_cameras()
+    service.new_session("s")  # same name -> resume
+    time.sleep(1.1)  # distinct timestamp for the file name
+    service.capture_all()
+    service.close_cameras()
+
+    rows = list(csv.DictReader((tmp_path / "s" / "captures.csv").open()))
+    assert len(rows) == 2
+    assert rows[0]["animal_id"] == "H1" and rows[0]["condition"] == ""
+    assert rows[1]["condition"] == "drug"
+
+
 def test_capture_layout_and_log(tmp_path):
     settings = Settings(
         output_dir=str(tmp_path),

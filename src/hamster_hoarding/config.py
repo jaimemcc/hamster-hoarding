@@ -1,9 +1,10 @@
-from dataclasses import dataclass, field, fields
+from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 
 import yaml
 
 DEFAULT_CONFIG = Path(__file__).resolve().parents[2] / "config" / "default.yaml"
+LAST_USED_CONFIG = DEFAULT_CONFIG.with_name("last_used.yaml")  # git-ignored
 
 
 @dataclass
@@ -41,6 +42,9 @@ class Settings:
     metadata_fields: list[str] = field(default_factory=list)
     # Subset of metadata_fields whose values are also put in the image file name.
     filename_fields: list[str] = field(default_factory=list)
+    # GUI state, saved to LAST_USED_CONFIG automatically.
+    last_session: str | None = None
+    load_last_saved: bool = False  # on startup, use LAST_USED_CONFIG instead of the base config
     cameras: list[CameraSettings] = field(default_factory=list)
 
 
@@ -59,12 +63,16 @@ def load_settings(path: Path = DEFAULT_CONFIG) -> Settings:
 
 
 def save_settings(settings: Settings, path: Path) -> None:
-    data = {
-        "output_dir": settings.output_dir,
-        "interval_minutes": settings.interval_minutes,
-        "jpeg_quality": settings.jpeg_quality,
-        "metadata_fields": settings.metadata_fields,
-        "filename_fields": settings.filename_fields,
-        "cameras": [vars(c) for c in settings.cameras],
-    }
-    Path(path).write_text(yaml.safe_dump(data, sort_keys=False))
+    Path(path).write_text(yaml.safe_dump(asdict(settings), sort_keys=False))
+
+
+def resolve_startup_settings(base_path: Path) -> tuple[Settings, Path]:
+    """Load `base_path`, or the last GUI-saved config if that was requested last time."""
+    if LAST_USED_CONFIG.exists():
+        try:
+            last = load_settings(LAST_USED_CONFIG)
+        except (ValueError, TypeError, yaml.YAMLError):
+            last = None  # unreadable/outdated file: fall back to the base config
+        if last is not None and last.load_last_saved:
+            return last, LAST_USED_CONFIG
+    return load_settings(base_path), base_path

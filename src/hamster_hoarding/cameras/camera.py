@@ -73,10 +73,10 @@ class Camera:
         self._thread.start()
 
     def _run(self) -> None:
-        rotation = ROTATIONS.get(self.settings.rotate)
         while not self._stop.is_set():
             try:
                 image = self._read()
+                rotation = ROTATIONS.get(self.settings.rotate)  # read live: editable from the GUI
                 if image is not None and rotation is not None:
                     image = cv2.rotate(image, rotation)
             except Exception as exc:  # noqa: BLE001 - keep thread alive; surfaced via .error

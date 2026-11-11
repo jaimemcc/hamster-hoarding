@@ -12,11 +12,11 @@ jpeg_quality: 95
 # Per-camera metadata: every key listed here is a CSV column and an editable field in the GUI.
 # filename_fields (subset) are also included in the image file name:
 #   <camera>_<values...>_<timestamp>.jpg
-metadata_fields: [animal_id, cage]
+metadata_fields: [animal_id, condition]
 filename_fields: [animal_id]
 
 cameras:
-  - {name: cam1, device: mock, metadata: {animal_id: H01, cage: A}}
-  - {name: cam2, device: mock, metadata: {animal_id: H02, cage: B}}
+  - {name: cam1, device: mock, metadata: {animal_id: H01, condition: control}}
+  - {name: cam2, device: mock, metadata: {animal_id: H02}}
   - {name: cam3, device: mock}
   - {name: cam4, device: mock}
