@@ -3,6 +3,7 @@ import time
 
 from hamster_hoarding.config import CameraSettings, Settings, load_settings
 from hamster_hoarding.service import CaptureService
+from hamster_hoarding.storage import Session
 
 
 def test_default_config_loads():
@@ -179,6 +180,18 @@ def test_capture_all_works_while_streaming(tmp_path):
         assert "cam1" in service.cameras  # stream left running
     finally:
         service.shutdown()
+
+
+def test_notes_are_timestamped_and_appended(tmp_path):
+    settings = Settings(output_dir=str(tmp_path), cameras=[])
+    session = Session(settings, "n")
+    session.start()
+    session.add_note("added food, cage 2")
+    session.add_note("Schedule stopped", kind="event")
+    rows = list(csv.DictReader(session.notes_path.open(encoding="utf-8")))
+    assert [r["kind"] for r in rows] == ["note", "event"]
+    assert rows[0]["note"] == "added food, cage 2"
+    assert rows[0]["timestamp"][:4].isdigit() and "T" in rows[0]["timestamp"]
 
 
 def test_capture_layout_and_log(tmp_path):

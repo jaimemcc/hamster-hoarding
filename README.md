@@ -51,6 +51,7 @@ Exposure/gain can only be previewed with Live preview on.
 data/<session>/
   session.json                          settings snapshot and start time
   captures.csv                          timestamp, camera, <metadata fields>, file, brightness, ...
+  notes.csv                             timestamp, kind (note/event), note
   cam1/cam1_H01_20261110T160439.jpg     (metadata in filename is optional: filename_fields)
   cam2/...
 ```
@@ -59,6 +60,10 @@ Metadata (e.g. `animal_id`, `cage`) is configured per camera in the YAML via `me
 `filename_fields` and each camera's `metadata:`; it can also be edited in the GUI tiles.
 Use **Pause** during feeding: scheduled captures stop, and **Resume** takes an image
 immediately and continues on the interval.
+
+Type free-text notes (e.g. "added food", "cage disturbed") in the note box and press Enter; they
+go to `notes.csv` with the same ISO timestamp format as `captures.csv`, so the two can be joined
+by time. Schedule start/pause/resume/stop are logged there automatically as `event` rows.
 
 The camera `name` in the config is the identity written into folder/file names and the CSV,
 so images can always be traced to their camera regardless of USB device numbering.

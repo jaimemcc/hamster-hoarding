@@ -253,11 +253,23 @@ class MainWindow(QMainWindow):
         self.load_last_check.setToolTip(f"Settings are saved automatically to {LAST_USED_CONFIG}")
         root.addWidget(self.load_last_check)
 
+        note_row = QHBoxLayout()
+        self.note_edit = QLineEdit()
+        self.note_edit.setPlaceholderText(
+            "Note for the session log (e.g. added food, cage disturbed) - press Enter"
+        )
+        self.note_btn = QPushButton("Add note")
+        note_row.addWidget(self.note_edit, 1)
+        note_row.addWidget(self.note_btn)
+        root.addLayout(note_row)
+
         self.log = QPlainTextEdit()
         self.log.setReadOnly(True)
         self.log.setMaximumHeight(140)
         root.addWidget(self.log)
 
+        self.note_btn.clicked.connect(self.add_note)
+        self.note_edit.returnPressed.connect(self.add_note)
         self.capture_btn.clicked.connect(self.capture_now)
         self.resume_session_btn.clicked.connect(self.resume_last_session)
         self.start_btn.clicked.connect(self.start_schedule)
@@ -373,6 +385,28 @@ class MainWindow(QMainWindow):
         self.settings.last_session = self.service.session.session_id
         self._save_timer.start()
 
+    def add_note(self) -> None:
+        text = self.note_edit.text().strip()
+        if not text:
+            return
+        self._ensure_session()
+        try:
+            self.service.session.add_note(text)
+        except OSError as exc:
+            self._log(f"Could not save note: {exc}")
+            return
+        self.note_edit.clear()
+        self._log(f"Note: {text}")
+
+    def _log_event(self, text: str) -> None:
+        self._log(text)
+        session = self.service.session
+        if session is not None:
+            try:
+                session.add_note(text, kind="event")
+            except OSError as exc:
+                self._log(f"Could not save event: {exc}")
+
     def capture_now(self) -> None:
         self._ensure_session()
         self.capture_btn.setEnabled(False)
@@ -392,17 +426,17 @@ class MainWindow(QMainWindow):
         self.stop_btn.setEnabled(True)
         self.interval.setEnabled(False)
         self.session_edit.setEnabled(False)
-        self._log(f"Schedule started: every {self.interval.value():g} min")
+        self._log_event(f"Schedule started: every {self.interval.value():g} min")
 
     def toggle_pause(self) -> None:
         if self.service.paused:
             self.service.resume()
             self.pause_btn.setText("Pause")
-            self._log("Resumed (capturing now)")
+            self._log_event("Resumed (capturing now)")
         else:
             self.service.pause()
             self.pause_btn.setText("Resume")
-            self._log("Paused - scheduled captures suspended")
+            self._log_event("Paused - scheduled captures suspended")
 
     def stop_schedule(self) -> None:
         self.service.stop_schedule()
@@ -413,7 +447,7 @@ class MainWindow(QMainWindow):
         self.interval.setEnabled(True)
         self.session_edit.setEnabled(True)
         self._update_resume_button()
-        self._log("Schedule stopped")
+        self._log_event("Schedule stopped")
 
     def _on_results(self, results: list[CaptureResult]) -> None:
         self.capture_btn.setEnabled(True)

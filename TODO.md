@@ -50,6 +50,7 @@ Suggested next steps, in order:
 - [x] "Live preview" toggle: off = sequential on-demand capture (one camera open at a time)
 - [x] Per-tile history browsing (◀/▶) of previous captures during a run
 - [ ] Verify bandwidth/timing with all 4 (then 8) real cameras
+- [x] Timestamped notes log (notes.csv) with note box in GUI; schedule events logged automatically
 - [ ] Settings panel editing cameras / output dir; save/load profiles
 - [ ] Countdown to next capture, disk-space warning, image count
 - [ ] Open last captured image / session folder

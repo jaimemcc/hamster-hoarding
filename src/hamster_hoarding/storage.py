@@ -12,6 +12,7 @@ from hamster_hoarding.cameras.quality import Quality
 from hamster_hoarding.config import CameraSettings, Settings
 
 BASE_COLUMNS = ["timestamp", "camera"]
+NOTE_COLUMNS = ["timestamp", "kind", "note"]  # kind: "note" (typed by user) or "event" (automatic)
 QUALITY_COLUMNS = [
     "file",
     "brightness",
@@ -32,6 +33,7 @@ class Session:
     <output_dir>/<session_id>/
         session.json     settings snapshot + start time
         captures.csv     one row per image: time, camera, metadata fields, file, quality
+        notes.csv        timestamped user notes and schedule events (start/pause/resume/stop)
         <camera>/<camera>[_<filename metadata>]_<YYYYmmddTHHMMSS>.jpg
     """
 
@@ -40,6 +42,7 @@ class Session:
         self.session_id = session_id or datetime.now().strftime("%Y%m%d_%H%M%S")
         self.root = Path(settings.output_dir) / self.session_id
         self.log_path = self.root / "captures.csv"
+        self.notes_path = self.root / "notes.csv"
         self.columns = BASE_COLUMNS + settings.metadata_fields + QUALITY_COLUMNS
 
     def start(self) -> None:
@@ -70,6 +73,18 @@ class Session:
                 writer = csv.writer(f)
                 writer.writerow(self.columns)
                 writer.writerows(r + [""] * len(missing) for r in rows[1:])
+
+    def add_note(self, text: str, kind: str = "note") -> str:
+        """Append a timestamped entry to notes.csv (same timestamp format as captures.csv)."""
+        self.root.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now().astimezone().isoformat(timespec="seconds")
+        new = not self.notes_path.exists()
+        with self.notes_path.open("a", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            if new:
+                writer.writerow(NOTE_COLUMNS)
+            writer.writerow([stamp, kind, text])
+        return stamp
 
     def images(self, camera: str) -> list[Path]:
         """Existing images for a camera in capture order (from the log)."""
