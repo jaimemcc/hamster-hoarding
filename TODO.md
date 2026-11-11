@@ -15,14 +15,12 @@ GUI edits (exposure, gain, rotate, metadata, interval, last session) auto-save t
 `config/last_used.yaml` (git-ignored); the "Load last saved settings on startup" checkbox
 makes the next start use it. `--config` always overrides.
 
-LED array: the ELP LEDs and IR-cut filter appear to be driven by the board's photosensor, not
-UVC, so software LED control is probably not possible (unconfirmed for this exact model).
-Options: hardware (LED board power connector / disconnect LEDs / own IR lights), or cover/light the
-photosensor. Ask the user what they want; see conversation notes.
+LED array: no software control (ELP LEDs/IR-cut follow the board's photosensor; no UVC property).
+Decision: user will cover the LEDs with opaque tape (or disconnect the LED board connector) for
+the whole experiment if lights-off is wanted. Don't cover the photosensor.
 
 Open questions for the user:
 - Confirm camera mounting orientation once decided (rotate is now a per-tile GUI option).
-- Do they want to try an LED-off workaround (see above)?
 
 Suggested next steps, in order:
 1. Plug in all 4 cameras; run `pixi run detect --skip 0 --write-config`, check the preview grid.
