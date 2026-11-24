@@ -2,7 +2,7 @@
 import struct
 import sys
 
-SIZE = 90.0      # outer X/Y
+SIZE = 100.0      # outer X/Y
 HEIGHT = 20.0    # total height (floor + lip)
 WALL = 5.0       # wall thickness
 FLOOR = 3.0      # floor thickness
