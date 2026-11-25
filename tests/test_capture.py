@@ -1,9 +1,34 @@
 import csv
+import sys
 import time
+
+import pytest
 
 from hamster_hoarding.config import CameraSettings, Settings, load_settings
 from hamster_hoarding.service import CaptureService
 from hamster_hoarding.storage import Session
+
+
+@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="Linux device paths")
+def test_detection_deduplicates_device_aliases(tmp_path, monkeypatch):
+    from hamster_hoarding.cameras import detect
+
+    video1 = tmp_path / "video1"
+    video2 = tmp_path / "video2"
+    video1.touch()
+    video2.touch()
+    by_path = tmp_path / "by-path"
+    by_path.mkdir()
+    (by_path / "usb-a-video-index0").symlink_to(video1)
+    (by_path / "usbv2-a-video-index0").symlink_to(video1)
+    (by_path / "usb-b-video-index0").symlink_to(video2)
+    (by_path / "usb-a-video-index1").symlink_to(video1)
+    monkeypatch.setattr(detect, "Path", lambda _: by_path)
+
+    assert detect.candidate_devices() == [
+        str(by_path / "usb-a-video-index0"),
+        str(by_path / "usb-b-video-index0"),
+    ]
 
 
 def test_default_config_loads():

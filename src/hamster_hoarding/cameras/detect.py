@@ -24,7 +24,14 @@ def candidate_devices() -> list[int | str]:
     if sys.platform.startswith("linux"):
         by_path = Path("/dev/v4l/by-path")
         if by_path.exists():
-            return sorted(str(p) for p in by_path.glob("*video-index0"))
+            devices = []
+            seen = set()
+            for path in sorted(by_path.glob("*video-index0")):
+                target = path.resolve()
+                if target not in seen:
+                    seen.add(target)
+                    devices.append(str(path))
+            return devices
     return list(range(MAX_INDEX))
 
 
